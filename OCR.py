@@ -85,7 +85,6 @@ lp_access_token = st.sidebar.text_input(
     type="password"
 )
 
-
 # ==========================================
 # 3. LongPort 资源连接池管理
 # ==========================================
@@ -99,7 +98,6 @@ def get_longport_config(app_key, app_secret, access_token):
         st.sidebar.error(f"LongPort Config 初始化失败: {e}")
         return None
 
-
 @st.cache_resource
 def get_quote_context(app_key, app_secret, access_token):
     cfg = get_longport_config(app_key, app_secret, access_token)
@@ -111,7 +109,6 @@ def get_quote_context(app_key, app_secret, access_token):
         st.sidebar.error(f"LongPort 行情连接失败: {e}")
         return None
 
-
 # 初始化行情上下文
 quote_ctx = get_quote_context(lp_app_key, lp_app_secret, lp_access_token)
 
@@ -119,7 +116,6 @@ if quote_ctx:
     st.sidebar.success("✅ LongPort 实时行情连接已就绪")
 else:
     st.sidebar.warning("⚠️ 行情未连接。将默认使用 Gemini OCR 提取的静态价格。")
-
 
 # ==========================================
 # 4. 辅助函数：符号转换与数据规整
@@ -133,12 +129,11 @@ def format_market_symbol(symbol):
     else:
         return f"{symbol}.US"
 
-
 def build_longport_option_symbol(underlying, expiry, strike, option_type="P"):
     try:
         underlying = underlying.split(".")[0].upper()
         clean_expiry = expiry.replace("-", "").replace("/", "")
-        if len(clean_expiry) == 8:
+        if len(clean_expiry) == 8:  
             clean_expiry = clean_expiry[2:]
         elif len(clean_expiry) != 6:
             return None
@@ -150,13 +145,11 @@ def build_longport_option_symbol(underlying, expiry, strike, option_type="P"):
     except Exception:
         return None
 
-
 def encode_uploaded_file(uploaded_file):
     bytes_data = uploaded_file.getvalue()
     encoded_string = base64.b64encode(bytes_data).decode('utf-8')
     mime_type = uploaded_file.type
     return encoded_string, mime_type
-
 
 # ==========================================
 # 5. Gemini 结构化 OCR 识别逻辑
@@ -179,8 +172,7 @@ def extract_put_options_from_image(base64_data, mime_type, api_key, model_name, 
                         "current_price": {"type": "STRING"},
                         "cost_price": {"type": "STRING"}
                     },
-                    "required": ["underlying_name", "strike_price", "expiration_date", "quantity", "current_price",
-                                 "cost_price"]
+                    "required": ["underlying_name", "strike_price", "expiration_date", "quantity", "current_price", "cost_price"]
                 }
             }
         },
@@ -203,20 +195,18 @@ def extract_put_options_from_image(base64_data, mime_type, api_key, model_name, 
 
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": mime_type, "data": base64_data}}]}],
-        "systemInstruction": {
-            "parts": [{"text": "你是一个高精度的金融期权 OCR 数据提取助手。你能够精准识别持仓图像中的各项期权交易指标，并严格按指定的 JSON 结构输出。确保不遗漏负号等核心细节。"}]},
+        "systemInstruction": {"parts": [{"text": "你是一个高精度的金融期权 OCR 数据提取助手。你能够精准识别持仓图像中的各项期权交易指标，并严格按指定的 JSON 结构输出。确保不遗漏负号等核心细节。"}]},
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": response_schema}
     }
     headers = {"Content-Type": "application/json"}
     response = requests.post(url, headers=headers, json=payload, proxies=proxies, timeout=30)
-
+    
     if response.status_code == 200:
         result_json = response.json()
         text_content = result_json['candidates'][0]['content']['parts'][0]['text']
         return json.loads(text_content)
     else:
         raise RuntimeError(f"请求失败，状态码: {response.status_code}，错误信息: {response.text}")
-
 
 # ==========================================
 # 6. 长桥实时价格获取与回贴逻辑
@@ -233,7 +223,6 @@ def get_realtime_quotes(symbols, is_option=False):
     except Exception as e:
         st.warning(f"获取实时价格失败: {e}，将采用 OCR 识别价格替代。")
         return {}
-
 
 # ==========================================
 # 7. 主页面交互与展示
@@ -271,7 +260,7 @@ with col2:
                         st.warning("⚠️ 未能在此图片中成功匹配或识别到任何 Put（认沽）期权持仓。")
                     else:
                         st.success(f"🎉 成功识别出 {len(raw_options)} 个期权持仓！正在进行长桥行情穿透...")
-
+                        
                         processed_list = []
                         underlying_symbols = []
                         option_symbols = []
@@ -280,8 +269,7 @@ with col2:
                             raw_underlying = opt["underlying_name"]
                             formatted_underlying = format_market_symbol(raw_underlying)
                             underlying_symbols.append(formatted_underlying)
-                            opt_symbol = build_longport_option_symbol(formatted_underlying, opt["expiration_date"],
-                                                                      opt["strike_price"])
+                            opt_symbol = build_longport_option_symbol(formatted_underlying, opt["expiration_date"], opt["strike_price"])
                             option_symbols.append(opt_symbol if opt_symbol else "UNKNOWN")
 
                         live_underlying_prices = {}
@@ -296,15 +284,14 @@ with col2:
                         total_premium_received = 0.0
 
                         for idx, opt in enumerate(raw_options):
-                            qty = abs(int(float(opt["quantity"])))
+                            qty = abs(int(float(opt["quantity"]))) 
                             strike = float(opt["strike_price"])
                             cost = float(opt["cost_price"])
 
                             try:
-                                dte = max((datetime.strptime(opt["expiration_date"].replace("/", "-"),
-                                                             '%Y-%m-%d') - datetime.now()).days, 0)
+                                dte = max((datetime.strptime(opt["expiration_date"].replace("/", "-"), '%Y-%m-%d') - datetime.now()).days, 0)
                             except Exception:
-                                dte = 999
+                                dte = 999 
 
                             notional = strike * 100 * qty
                             total_notional_exposure += notional
@@ -326,7 +313,7 @@ with col2:
                                 try:
                                     opt_cur_p = float(re.sub(r'[^\d.]', '', opt["current_price"]))
                                 except Exception:
-                                    opt_cur_p = cost
+                                    opt_cur_p = cost 
 
                             buffer_pct = ((cur_p - strike) / cur_p * 100) if cur_p > 0 else 0.0
                             profit_pct = ((cost - opt_cur_p) / cost * 100) if cost > 0 else 0.0
@@ -334,11 +321,24 @@ with col2:
                             if buffer_pct < 5 or dte < 7:
                                 status = "🔴 危险 ( 高危/末日 )"
                             elif buffer_pct < 12:
-                                status = "🟡 关注 ( 破警戒线 )"
+                                status = "🟡 关注 ( 警戒 )"
                             else:
                                 status = "🟢 安全"
 
-                            target_tag = "🔥 已达 50% 止盈" if profit_pct >= 50 else ""
+                            # 丰富【标记】列的业务逻辑（支持多标签组合）
+                            tags = []
+                            if profit_pct >= 50:
+                                tags.append("🔥 达标止盈 (>50%)")
+                            elif profit_pct <= -50:
+                                tags.append("⚠️ 深度浮亏")
+                                
+                            if buffer_pct < 0:
+                                tags.append("💥 跌破行权价 (ITM)")
+                            
+                            if dte <= 3:
+                                tags.append("⏳ 末日临期")
+
+                            target_tag = " | ".join(tags) if tags else "—"
 
                             processed_list.append({
                                 "状态": status,
@@ -366,20 +366,26 @@ with col2:
                         st.markdown("### 📊 穿透后持仓风控明细阵列")
                         df = df.sort_values(by=["期权浮盈 (%)", "安全垫 (%)"])
 
-
+                        # 优化高亮逻辑，覆盖新标签
                         def highlight_risk(row):
-                            if "危险" in row['状态']: return ['background-color: #ffcccc'] * len(row)
-                            if "关注" in row['状态']: return ['background-color: #fff4cc'] * len(row)
-                            if "止盈" in row['标记']: return ['background-color: #ccffcc'] * len(row)
+                            if "ITM" in row['标记'] or "危险" in row['状态']: 
+                                return ['background-color: #ffcccc; color: #900'] * len(row)
+                            if "浮亏" in row['标记'] or "关注" in row['状态']: 
+                                return ['background-color: #fff4cc; color: #860'] * len(row)
+                            if "止盈" in row['标记']: 
+                                return ['background-color: #ccffcc; color: #060'] * len(row)
                             return [''] * len(row)
 
-
+                        # 使用 column_config 强制放宽【标记】和【状态】列，解决显示不全的问题
                         st.dataframe(
-                            df.style.apply(highlight_risk, axis=1).format(
-                                {"名义价值 (USD)": "${:,.2f}", "已收权利金": "${:,.2f}"}),
-                            use_container_width=True, hide_index=True
+                            df.style.apply(highlight_risk, axis=1).format({"名义价值 (USD)": "${:,.2f}", "已收权利金": "${:,.2f}"}),
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "标记": st.column_config.TextColumn("标记 🎯", width="large"),
+                                "状态": st.column_config.TextColumn("状态", width="medium")
+                            }
                         )
 
                         csv_data = df.to_csv(index=False, encoding="utf-8-sig")
-                        st.download_button("📥 一键下载分析数据为 CSV", data=csv_data, file_name="extracted_options.csv",
-                                           mime="text/csv", use_container_width=True)
+                        st.download_button("📥 一键下载分析数据为 CSV", data=csv_data, file_name="extracted_options.csv", mime="text/csv", use_container_width=True)
