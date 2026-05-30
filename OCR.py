@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 st.title("🛡️ Sell Put 智能识别与实时风险监控舱")
-st.markdown("结合 **Gemini 3.5 多模态 OCR** 与 **LongPort 实时行情**，全自动进行穿透式名义价值、希腊字母与年化收益监控。")
+st.markdown("结合 **Gemini 3.5 多模态 OCR** 与 **LongPort 实时行情**，全自动进行穿透式名义价值与年化收益监控。")
 
 # 初始化 Session State（避免每次点按钮都重新执行 OCR）
 if "raw_options" not in st.session_state:
@@ -95,13 +95,13 @@ def build_longport_option_symbol(underlying, expiry, strike, option_type="P"):
 def encode_uploaded_file(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8'), uploaded_file.type
 
-def get_action_suggestion(profit_pct, buffer_pct, dte, delta):
+def get_action_suggestion(profit_pct, buffer_pct, dte):
     """根据核心指标生成智能操作建议"""
-    if profit_pct >= 60 and dte > 15: return "🎯 买入平仓 (BTC)，提早落袋"
-    if profit_pct >= 80: return "🎯 收益见顶，建议平仓"
-    if buffer_pct < 0 and dte <= 7: return "⚠️ 准备展期 (Roll Out) 或接盘正股"
-    if profit_pct <= -50 and buffer_pct > 5: return "⏳ 护城河尚在，吃时间价值"
-    if dte <= 3 and buffer_pct > 3: return "🤑 躺平等归零"
+    if profit_pct >= 60 and dte > 15: return "🎯 买平 (BTC) 释放保证金"
+    if profit_pct >= 80: return "🎯 收益见顶，落袋为安"
+    if buffer_pct < 0 and dte <= 7: return "⚠️ 准备展期 (Roll) 或接盘正股"
+    if profit_pct <= -50 and buffer_pct > 5: return "⏳ 吃时间价值 (Theta Burn)"
+    if dte <= 3 and buffer_pct > 3: return "🤑 躺平等待期权作废"
     return "👀 持续观望"
 
 # ==========================================
@@ -140,21 +140,12 @@ def extract_put_options_from_image(base64_data, mime_type, api_key, model_name, 
     raise RuntimeError(f"OCR 失败: {resp.text}")
 
 def get_realtime_quotes(symbols, is_option=False):
-    """增强版：期权行情额外提取 IV 和 Delta"""
     if not quote_ctx or not symbols: return {}
     try:
         clean_symbols = list(set([s for s in symbols if s and s != "UNKNOWN"]))
         if not clean_symbols: return {}
-        if is_option:
-            quotes = quote_ctx.option_quote(clean_symbols)
-            return {q.symbol: {
-                "price": float(q.last_done),
-                "iv": float(getattr(q, 'implied_volatility', 0.0) or 0.0) * 100,
-                "delta": float(getattr(q, 'delta', 0.0) or 0.0)
-            } for q in quotes}
-        else:
-            quotes = quote_ctx.quote(clean_symbols)
-            return {q.symbol: float(q.last_done) for q in quotes}
+        quotes = quote_ctx.option_quote(clean_symbols) if is_option else quote_ctx.quote(clean_symbols)
+        return {q.symbol: float(q.last_done) for q in quotes}
     except Exception as e:
         st.warning(f"拉取行情异常: {e}")
         return {}
@@ -208,9 +199,9 @@ with col2:
             underlying_symbols.append(u_code)
             option_symbols.append(o_code if o_code else "UNKNOWN")
 
-        with st.spinner("正在连接 LongPort 拉取最新价格与希腊字母..."):
+        with st.spinner("正在连接 LongPort 拉取最新价格..."):
             live_u_prices = get_realtime_quotes(underlying_symbols, is_option=False)
-            live_o_data = get_realtime_quotes(option_symbols, is_option=True)
+            live_o_prices = get_realtime_quotes(option_symbols, is_option=True)
 
         processed_list = []
         tot_notional, tot_premium = 0.0, 0.0
@@ -230,18 +221,12 @@ with col2:
             u_code = underlying_symbols[idx]
             o_code = option_symbols[idx]
 
-            # 取标的现价
             cur_p = live_u_prices.get(u_code, 0.0)
             if cur_p == 0.0:
                 try: cur_p = float(re.sub(r'[^\d.]', '', opt["current_price"]))
                 except: cur_p = 0.0
 
-            # 取期权现价、IV、Delta
-            o_info = live_o_data.get(o_code, {})
-            opt_cur_p = o_info.get("price", 0.0)
-            iv = o_info.get("iv", 0.0)
-            delta = o_info.get("delta", 0.0)
-            
+            opt_cur_p = live_o_prices.get(o_code, 0.0)
             if opt_cur_p == 0.0:
                 try: opt_cur_p = float(re.sub(r'[^\d.]', '', opt["current_price"]))
                 except: opt_cur_p = cost 
@@ -259,7 +244,7 @@ with col2:
             if buffer_pct < 0: tags.append("💥 ITM( 破位 )")
             if dte <= 3: tags.append("⏳ 末日临期")
             
-            action_tip = get_action_suggestion(profit_pct, buffer_pct, dte, delta)
+            action_tip = get_action_suggestion(profit_pct, buffer_pct, dte)
 
             processed_list.append({
                 "状态": status,
@@ -274,8 +259,6 @@ with col2:
                 "现价": f"${opt_cur_p:.2f}",
                 "期权浮盈 (%)": round(profit_pct, 2),
                 "年化收益率 (%)": round(ar_pct, 2),
-                "Delta": round(delta, 3),
-                "IV (%)": round(iv, 2),
                 "名义价值": notional,
                 "已收权利金": premium,
                 "操作建议": action_tip,
@@ -318,7 +301,7 @@ with col2:
             df.style.apply(highlight_risk, axis=1).format({
                 "名义价值": "${:,.2f}", "已收权利金": "${:,.2f}",
                 "安全垫 (%)": "{:.2f}", "期权浮盈 (%)": "{:.2f}",
-                "年化收益率 (%)": "{:.2f}", "Delta": "{:.3f}", "IV (%)": "{:.2f}"
+                "年化收益率 (%)": "{:.2f}"
             }),
             use_container_width=True, 
             hide_index=True,
@@ -328,9 +311,7 @@ with col2:
                 "操作建议": st.column_config.TextColumn("💡 AI 操作建议", width="large"),
                 "安全垫 (%)": st.column_config.NumberColumn("安全垫 (%)", format="%.2f"),
                 "期权浮盈 (%)": st.column_config.NumberColumn("期权浮盈 (%)", format="%.2f"),
-                "年化收益率 (%)": st.column_config.NumberColumn("年化收益率 (%)", format="%.2f"),
-                "Delta": st.column_config.NumberColumn("Delta", format="%.3f"),
-                "IV (%)": st.column_config.NumberColumn("IV (%)", format="%.2f")
+                "年化收益率 (%)": st.column_config.NumberColumn("年化收益率 (%)", format="%.2f")
             }
         )
 
