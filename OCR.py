@@ -147,7 +147,6 @@ def get_realtime_quotes(symbols, is_option=False):
         quotes = quote_ctx.option_quote(clean_symbols) if is_option else quote_ctx.quote(clean_symbols)
         return {q.symbol: float(q.last_done) for q in quotes}
     except Exception as e:
-        st.warning(f"拉取行情异常: {e}")
         return {}
 
 # ==========================================
@@ -170,9 +169,16 @@ with col1:
     with c_btn1:
         run_ocr = st.button("🚀 开始智能 OCR 分析", type="primary", use_container_width=True, disabled=(uploaded_file is None))
     with c_btn2:
-        refresh_quotes = st.button("🔄 仅刷新实时行情", use_container_width=True, disabled=(len(st.session_state.raw_options) == 0))
+        # 放开禁用锁，只要有图就能点，防止 UI 同步错位
+        refresh_quotes = st.button("🔄 仅刷新实时行情", use_container_width=True, disabled=(uploaded_file is None))
 
-# 核心处理逻辑触发
+# ================= 动作触发逻辑 =================
+if refresh_quotes:
+    if not st.session_state.raw_options:
+        st.warning("⚠️ 缓存中没有期权数据，请先点击左侧蓝色的【🚀 开始智能 OCR 分析】。")
+    else:
+        st.toast("已向长桥 API 发起最新行情请求！", icon="📡")
+
 if run_ocr and uploaded_file and api_key_input:
     with st.spinner("正在调用 Gemini 多模态模型解析截图..."):
         try:
@@ -181,6 +187,9 @@ if run_ocr and uploaded_file and api_key_input:
             st.session_state.raw_options = ext_json.get("put_options", [])
             if not st.session_state.raw_options:
                 st.warning("⚠️ 未识别到 Put 期权。")
+            else:
+                # 识别成功后，强制刷新页面以同步最新的 UI 状态（激活刷新按钮）
+                st.rerun() 
         except Exception as e:
             st.error(f"解析失败: {e}")
 
@@ -202,9 +211,13 @@ with col2:
         with st.spinner("正在连接 LongPort 拉取最新价格..."):
             live_u_prices = get_realtime_quotes(underlying_symbols, is_option=False)
             live_o_prices = get_realtime_quotes(option_symbols, is_option=True)
+            
+            # 显示最后刷新时间
+            st.caption(f"⏱️ 最后刷新时间: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}** ( 若价格不变，可能是因为休市或长桥 Token 异常降级至 OCR 价格 )")
 
         processed_list = []
         tot_notional, tot_premium = 0.0, 0.0
+        used_fallback = False # 记录是否使用了降级价格
 
         for idx, opt in enumerate(raw_options):
             qty = abs(int(float(opt["quantity"]))) 
@@ -223,6 +236,7 @@ with col2:
 
             cur_p = live_u_prices.get(u_code, 0.0)
             if cur_p == 0.0:
+                used_fallback = True
                 try: cur_p = float(re.sub(r'[^\d.]', '', opt["current_price"]))
                 except: cur_p = 0.0
 
@@ -264,6 +278,9 @@ with col2:
                 "操作建议": action_tip,
                 "标记": " | ".join(tags) if tags else "—"
             })
+            
+        if used_fallback:
+            st.warning("⚠️ 部分实时行情获取失败，已自动降级使用截图上的静态历史价格计算，请检查右侧边栏 LongPort Token 配置。")
 
         df = pd.DataFrame(processed_list)
 
