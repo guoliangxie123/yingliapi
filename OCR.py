@@ -54,11 +54,28 @@ lp_access_token = st.sidebar.text_input("ACCESS TOKEN", value=default_lp_access_
 # ==========================================
 # 3. LongPort 资源连接池管理
 # ==========================================
+
+def _make_config(app_key, app_secret, access_token):
+    """兼容 longport v2 / v3 的 Config 构造"""
+    os.environ["LONGPORT_APP_KEY"] = app_key
+    os.environ["LONGPORT_APP_SECRET"] = app_secret
+    os.environ["LONGPORT_ACCESS_TOKEN"] = access_token
+    if hasattr(Config, "from_env"):
+        return Config.from_env()
+    elif hasattr(Config, "from_apikey"):
+        return Config.from_apikey(app_key, app_secret, access_token)
+    else:
+        return Config(app_key=app_key, app_secret=app_secret, access_token=access_token)
+
 @st.cache_resource
 def get_longport_config(app_key, app_secret, access_token):
     if not (app_key and app_secret and access_token): return None
-    try: return Config(app_key=app_key, app_secret=app_secret, access_token=access_token)
-    except Exception: return None
+    try:
+        return _make_config(app_key, app_secret, access_token)
+    except Exception as e:
+        st.error(f"Config 构造失败：{type(e).__name__}: {e}")
+        return None
+
 
 @st.cache_resource
 def get_quote_context(app_key, app_secret, access_token):
