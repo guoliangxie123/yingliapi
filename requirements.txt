@@ -1,5 +1,7 @@
+
 streamlit
+longport>=3.0
 pandas
-requests
-longport
 plotly
+requests
+
